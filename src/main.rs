@@ -1,8 +1,13 @@
 #![allow(dead_code)]
 use std::env;
-use std::net::IpAddr;
+use std::net::{IpAddr, TcpStream};
 use std::str::FromStr;
 use std::process;
+use std::sync::mpsc::{Sender, channel};
+use std::thread;
+use std::io::{self, Write};
+
+const MAX: u16 = 65535;
 
 #[derive(Debug)]
 struct Arguments{	
@@ -51,6 +56,26 @@ impl Arguments{
 	}
 }
 
+fn scan(tx: Sender<u16>, start_port: u16, ipaddr: IpAddr, num_threads: u16){
+	let mut port: u16 = start_port + 1;
+	loop {
+		match TcpStream::connect((ipaddr, port)){
+			Ok(_) => {
+				print!(".");
+				io::stdout().flush().unwrap();
+				tx.send(port).unwrap();
+					}
+			Err(_) => {}
+		};
+
+		if (MAX - start_port) <= num_threads{
+			break;
+		}
+		port += num_threads;
+	}
+}
+
+
 fn main() {
 	let args: Vec<String> = env::args().collect();
 	let program = args[0].clone();
@@ -64,5 +89,28 @@ fn main() {
 							}
 
 						});
-	println!("{:?}", m);
+	let num_threads = m.threads;
+	let addr = m.ipaddress;
+	let (tx, rx) = channel();
+	for i in 0..num_threads{
+		let tx = tx.clone();
+		thread::spawn(move ||{
+			scan(tx, i, addr, num_threads);
+		});
+
+	}
+
+	let mut out = vec![];
+	drop(tx);
+
+	for p in rx{
+		out.push(p);
+	}
+	println!("");
+	out.sort();
+	for j in out{
+		println!("{}", j);
+	}
+
+
 }
