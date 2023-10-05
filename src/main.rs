@@ -1,61 +1,39 @@
 #![allow(dead_code)]
 
-use std::env::args;
-use std::io::Write;
-use std::net::{IpAddr, TcpStream};
-use std::str::FromStr;
-use std::{process, io};
+use std::io::{self, Write};
+use std::net::{IpAddr, Ipv4Addr};
+use tokio::net::{TcpStream};
+use tokio::task;
+use bpaf::Bpaf;
 use std::sync::mpsc::{channel, Sender};
-use std::thread;
+
+const IPFALLBACK:IpvAddr = IpvAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+
 
 const MAX: u16 = 65535;
 
-#[derive(Debug)]
-struct Store{
-	flag: String, 
-	threads: u16,
-	ip_addr: IpAddr
+#[derive(Debug, Clone, Bpaf)]
+#[bpaf(options)]
+pub struct Store{
+	#[bpaf(long, short, fallback(IPFALLBACK))]
+	/// The address that you want to sniff. Must be valid ipv4
+	pub address: IpAddr,
+	#[bpaf(long("start"), short("s"), fallback(1u16), guard(start_port_guard, "Must be greater than 0"))]
+	pub start_port: u16,
+	#[bpaf(long("end"), short("e"), fallback(MAX), guard(end_port_guard, "Must be smaller than 65535"))]
+	pub end_port: u16
 }
 
-impl Store{
-	fn new(args: &Vec<String>) -> Result<Store, &'static str>{
-		if args.len() < 2{
-			return Err("Need more arguments");
-		}
-		else if args.len() > 4{
-			return Err("Too many Arguments");
-		}
-		let f = args[1].clone();
-		if let Ok(ip) = IpAddr::from_str(&f){
-			return Ok(Store{ flag: String::from(""), threads: 4, ip_addr: ip});
-		}else{
-			let flag = args[1].clone();
-			if flag.contains("-h") || flag.contains("-help") {
-				println!("-h or -help to print this message 
-					or -j to add thread number");
-				return Err("help called");
-			}else if flag.contains("-j"){
-				if args.len() < 4{
-					return Err("Need more arguments");
-				}
-				
-				let ip = match IpAddr::from_str(&args[3].clone()){
-								 Ok(s) => s,
-								 Err(_) => return Err("Invalid IP addr")
-								};
-				let thread_number = match args[2].parse::<u16>(){
-									Ok(s) => s,
-									Err(_) => return Err("Thread number cant be parsed")
-								};
-
-				return Ok(Store{flag: flag, threads: thread_number, ip_addr: ip});
-
-			}else{
-				return Err("Invalid syntax");
-			}
-		}
-	}
+fn start_port_guard(input: &u16) -> bool{
+	*input > 0
 }
+
+fn end_port_guard(input: &u16) ->bool{
+	*input <= MAX
+}
+
+
+
 fn scan(tx: Sender<u16>, start_port: u16, ipaddr: IpAddr, thread_no: u16 ){
 	let mut port: u16 = start_port + 1;
 	loop{
